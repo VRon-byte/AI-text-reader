@@ -3,8 +3,11 @@ __pycache__/
 *.py[codz]
 *$py.class
 
-# C extensions
-*.so
+# Mac/OSX
+.DS_Store
+
+# Windows
+Thumbs.db
 
 # Distribution / packaging
 .Python
