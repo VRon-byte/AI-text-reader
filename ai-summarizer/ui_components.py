@@ -239,9 +239,10 @@ def apply_custom_styles():
 
     .msg-content {
         font-size: 0.88rem;
-        line-height: 1.68;
+        line-height: 1.35;
         color: #c9d4e8;
         white-space: pre-wrap;
+        word-break: break-word; /* formatting additions */ 
     }
 
     .msg-time {
@@ -583,7 +584,11 @@ def render_upload_intent_modal(text_reader):
                     "summary": ""
                 }
                 st.session_state.documents.append(doc_entry)
-                st.session_state.current_doc_index = len(st.session_state.documents) - 1
+                # ← CHANGED: was `st.session_state.current_doc_index = len(...) - 1`
+                # Now adds the new doc's index into the selection set instead of replacing a single index
+                new_idx = len(st.session_state.documents) - 1
+                st.session_state.selected_doc_indices = {new_idx}
+
                 st.session_state.analysis_mode = opt["mode"]
 
                 if opt["id"] != "chat":
