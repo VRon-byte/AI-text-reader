@@ -1,4 +1,5 @@
 import streamlit as st
+import re
 from datetime import datetime
 from main import generate_response
 from text_reader import TextReader
@@ -22,9 +23,9 @@ def init_state():
         "chats": {"Session 1": {"messages": [], "tags": [], "created": datetime.now().strftime("%b %d")}},
         "active_chat": "Session 1",
         "documents": [],
-        "current_doc_index": None,
+        "selected_doc_indices": set(), # ← CHANGED: was "current_doc_index": None
         "analysis_mode": "Chat",
-        "pending_upload": None,
+        "pending_upload": None, 
         "pending_upload_name": "",
         "show_intent_modal": False,
         "search_query": "",
@@ -49,12 +50,12 @@ def push_message(role, content):
         "content": content,
         "time": datetime.now().strftime("%H:%M")
     })
-
-def current_document():
-    idx = st.session_state.current_doc_index
-    if idx is not None and idx < len(st.session_state.documents):
-        return st.session_state.documents[idx]["content"]
-    return None
+# ← CHANGED: replaced current_document() with selected_documents()
+# Old code returned a single string; new code returns a list of doc dicts
+def selected_document():
+    indices = st.session_state.selected_doc_indices
+    return [st.session_state.documents[i] for i in sorted(indices)
+            if i < len(st.session_state.documents)]
 
 # ── Intent modal (full-page takeover) ─────────────────────────────────────────
 if st.session_state.show_intent_modal and st.session_state.pending_upload is not None:
@@ -138,13 +139,22 @@ with st.sidebar:
     # ── Documents quick-list ────────────────────────────────────────────────
     if st.session_state.documents:
         st.markdown('<div class="nav-section-label">Documents</div>', unsafe_allow_html=True)
+        #ADDED: warn the user if they pile on too many docs at once
+        n_selected = len(st.session_state.selected_doc_indices)
+        if n_selected >3:
+            st.warning ("3+ docs selected — responses may be slow or cut off.")
+
         for i, doc in enumerate(st.session_state.documents):
-            is_active = st.session_state.current_doc_index == i
-            icon = "✓ " if is_active else "· "
+            is_selected = i in st.session_state.selected_doc_indices #CHANGED: was current_doc_index == i
+            icon = "✓ " if is_selected else "· "
             short = doc["name"][:22] + ("…" if len(doc["name"]) > 22 else "")
             if st.button(icon + short, key=f"sb_doc_{i}", use_container_width=True,
                          type="primary" if is_active else "secondary"):
-                st.session_state.current_doc_index = i
+                #CHANGED: toggle selection on/off instead of replacing the active doc
+                if i in st.session_state.selected_doc_indices:
+                    st.session_state.selected_doc_indices.discard(i)
+                else:
+                 st.session_state.selected_doc_indices.add(i)
                 st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -196,7 +206,7 @@ if st.session_state.active_tab == "library":
         for i, doc in enumerate(docs):
             real_idx = st.session_state.documents.index(doc)
             with grid[i % 3]:
-                is_active = st.session_state.current_doc_index == real_idx
+                is_active = real_idx in st.session_state.selected_doc_indices #CHANGED: was current_doc_index == real_idx
                 card_class = "doc-card active-card" if is_active else "doc-card"
                 preview = doc.get("content", "")[:180].replace("\n", " ")
                 tags_html = " ".join(f'<span class="doc-tag">#{t}</span>' for t in doc.get("tags", []))
@@ -214,14 +224,17 @@ if st.session_state.active_tab == "library":
                 with b1:
                     if st.button("✓ Active" if is_active else "Use",
                                  key=f"use_doc_{real_idx}", use_container_width=True):
-                        st.session_state.current_doc_index = real_idx
+                        #CHANGED: Toggle instead of overwrite
+                        if real_idx in st.session_state.selected_doc_indices:
+                            st.session_state.selected_doc_indices.discard(real_idx)
+                        else:
+                            st.session_state.selected_doc_indices.add(real_idx)
                         st.session_state.active_tab = "chat"
                         st.rerun()
                 with b2:
                     if st.button("🗑", key=f"del_doc_{real_idx}", use_container_width=True):
                         st.session_state.documents.pop(real_idx)
-                        if st.session_state.current_doc_index == real_idx:
-                            st.session_state.current_doc_index = None
+                        st.session_state.selected_doc_indices.discard(real_idx) #CHANGED:was checking current_doc_index == real_idx
                         st.rerun()
 
                 # ── Instant tag via on_change ──────────────────────────────
@@ -274,11 +287,8 @@ Documents:
 
 # ── CHAT ───────────────────────────────────────────────────────────────────
 else:
-    active_doc = None
-    if st.session_state.current_doc_index is not None:
-        idx = st.session_state.current_doc_index
-        if idx < len(st.session_state.documents):
-            active_doc = st.session_state.documents[idx]
+    #CHANGED: replaced single active_doc lookup with a list of all selected docs
+    active_doc = selected_document()
 
     # ── Session tabs — single row of clickable buttons only ────────────────
     chat_names = list(st.session_state.chats.keys())
@@ -304,9 +314,11 @@ else:
             f'<h1 class="page-title">{st.session_state.active_chat}</h1>',
             unsafe_allow_html=True
         )
+        # ← CHANGED: badge now lists all selected doc names, not just one
         if active_doc:
+            names = ", ".join(d["name"][:25] for d in active_doc)
             st.markdown(
-                f'<div class="active-doc-badge">📄 {active_doc["name"][:50]}</div>',
+                f'<div class="active-doc-badge">📄 {names}</div>',
                 unsafe_allow_html=True
             )
     with mode_sel:
@@ -317,13 +329,15 @@ else:
         )
 
     # ── Collapsible document preview ────────────────────────────────────────
-    if active_doc:
+    # ← CHANGED: only show the preview toggle when exactly 1 doc is selected
+    # (previewing 3 documents inline would be too cluttered)
+    if len(active_doc) == 1:
         toggle_label = "🔼 Hide document" if st.session_state.show_doc_preview else "🔽 View document"
         if st.button(toggle_label, key="toggle_doc_preview"):
             st.session_state.show_doc_preview = not st.session_state.show_doc_preview
             st.rerun()
         if st.session_state.show_doc_preview:
-            render_doc_viewer(active_doc)
+            render_doc_viewer(active_doc[0])
 
     # ── Scrollable messages container ────────────────────────────────────────
     messages = active_messages()
@@ -331,6 +345,8 @@ else:
     st.markdown('<div class="chat-scroll-box">', unsafe_allow_html=True)
 
     if not messages:
+        # ← CHANGED: hint text tells the user they can select multiple docs
+        no_doc_hint = " Select one or more documents from the sidebar to get started." if not active_doc else ""
         st.markdown("""
         <div class="welcome-state">
             <div class="welcome-icon">📖</div>
@@ -343,7 +359,12 @@ else:
         for msg in messages:
             role_class = "user-msg" if msg["role"] == "user" else "assistant-msg"
             avatar = "🧑‍🎓" if msg["role"] == "user" else "🎓"
-            safe_content = (msg["content"]
+
+            raw = msg["content"]                                          # ← NEW
+            raw = re.sub(r'\n{3,}', '\n\n', raw)                        # ← NEW
+            raw = re.sub(r'\n\n(\s*[-•*])', r'\n\1', raw)               # ← NEW
+            raw = re.sub(r'\n\n(\s*\*\*)', r'\n\1', raw)                # ← NEW
+            safe_content = (raw
                             .replace("&", "&amp;")
                             .replace("<", "&lt;")
                             .replace(">", "&gt;"))
@@ -369,8 +390,13 @@ else:
             with sug_cols[i]:
                 if st.button(sug, key=f"sug_{i}_{len(messages)}", use_container_width=True):
                     push_message("user", sug)
-                    doc_text = current_document()
-                    prompt = build_prompt(st.session_state.analysis_mode, doc_text, sug) if doc_text else sug
+                    #← CHANGED: build multi-doc prompt instead of single doc string
+                    docs = selected_document()
+                    if docs:
+                        doc_texts = {d["name"]: d["content"] for d in docs}
+                        prompt = build_prompt(st.session_state.analysis_mode, user_input=sug, documents=doc_texts)
+                    else: 
+                        prompt = sug
                     with st.spinner(""):
                         response = generate_response(prompt)
                     push_message("assistant", response)
@@ -378,14 +404,15 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Chat input ───────────────────────────────────────────────────────────
+    #CHANGED: placeholder updated, and prompt now built from selected_documents()
     user_input = st.chat_input("Ask anything about your document…")
     if user_input:
         push_message("user", user_input)
-        doc_text = current_document()
-        if st.session_state.analysis_mode != "Chat" and doc_text:
-            prompt = build_prompt(st.session_state.analysis_mode, doc_text, user_input)
-        elif doc_text:
-            prompt = build_prompt("Chat", doc_text, user_input)
+        docs = selected_document()
+
+        if docs:
+            doc_texts = {d["name"]: d["content"] for d in docs}  # ← NEW: dict of name → content
+            prompt = build_prompt(st.session_state.analysis_mode, user_input=user_input, documents=doc_texts)
         else:
             prompt = user_input
         with st.spinner("Thinking…"):

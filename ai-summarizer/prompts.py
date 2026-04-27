@@ -1,21 +1,53 @@
 import re
 
 # ── Core prompt builder ───────────────────────────────────────────────────────
-def build_prompt(mode: str, document: str = None, user_input: str = None) -> str:
-    doc = (document or "")[:5000]
-
+# ← CHANGED: signature now accepts `documents` dict {name: content} for multi-doc support
+# `document` (single string) kept for backwards compatibility
+def build_prompt(mode: str, document: str = None, user_input: str = None, documents: dict = None) -> str:
+    # ← NEW: build a unified doc_block and a flag for whether we're in multi-doc mode
+    if documents and len(documents) > 1:
+        # Multiple docs: cap each at 2000 chars to avoid hitting token limits
+        doc_block = "\n\n---\n\n".join(
+            f"[Document: {name}]\n{content[:2000]}"   # ← NEW: 2000 char cap per doc in multi mode
+            for name, content in documents.items()
+        )
+        multi = True
+    else:
+        # Single doc path — works the same as before
+        if documents:
+            name, content = next(iter(documents.items()))
+            doc_block = content[:5000]
+        else:
+            doc_block = (document or "")[:5000]  # ← original fallback, unchanged
+        multi = False
     if mode == "Summarize":
-        return f"""You are an expert academic summarizer. Summarize the following document for a college student.
+        # ← CHANGED: multi-doc version summarizes each doc separately then synthesizes
+        if multi:
+          return f"""You are an expert academic summarizer. Summarize the following document for a college student.
 
 Format your response with:
-- **TL;DR** (2-3 sentences)
+- **TL;DR** (Don't actually add in the letters TL;DR) (2-3 sentences)
+- **Main Points** (bullet list)
+Then end with:
+## Combined Synthesis
+- Shared themes
+- Key differences
+- Overall takeaway
+
+Documents:
+{doc_block}"""
+        else:
+            # ← UNCHANGED from original
+            return f"""You are an expert academic summarizer. Summarize the following document for a college student.
+
+Format your response with:
+- **TL;DR** (Don't actually add in the letters TL;DR)(2-3 sentences)
 - **Main Points** (bullet list)
 - **Key Takeaways** (3-5 items)
 - **Questions to Consider** (2-3 prompts)
 
 Document:
-{doc}"""
-
+{doc_block}"""
     elif mode == "Study Sheet":
         return f"""Create a comprehensive study guide for a college student based on this document.
 
@@ -38,64 +70,72 @@ Structure it as:
 [5 likely exam questions with answers]
 
 Document:
-{doc}"""
+{doc_block}"""
 
     elif mode == "Key Terms":
-        return f"""Extract and define all important terms, concepts, names, and theories from this document.
+        # ← CHANGED: multi mode asks the model to note which doc each term came from
+        return f"""Extract and define all important terms, concepts, names, and theories from {"these documents" if multi else "this document"}.
 
 Format each as:
-**Term** — Clear, concise definition. Explain why it matters in context.
+**Term** — Clear, concise definition. Explain why it matters in context.{"Note which document(s) use this term." if multi else ""}
 
 Group related terms together under headings if possible.
 
 Document:
-{doc}"""
+{doc_block}"""
 
     elif mode == "Explain Simple":
-        return f"""Explain this document as if talking to someone encountering the topic for the first time.
+        # ← CHANGED: multi mode asks for per-doc explanation then a comparison
+        return f"""Explain {"these documents" if multi else "this document"} as if talking to someone encountering the topic for the first time.
 
 Use:
 - Simple everyday language (no jargon without explanation)
 - Analogies and real-world examples
 - Short sentences
 - A friendly, encouraging tone
+{"- Explain each document separately, then briefly compare them" if multi else ""}
 
 Document:
-{doc}"""
+{doc_block}"""
 
     elif mode == "Flashcards":
-        return f"""Create 10-15 flashcard-style Q&A pairs from this document.
-
+        # ← CHANGED: multi mode adds cross-document comparison cards
+        return f"""Create 10-15 flashcard-style Q&A pairs from {"these documents" if multi else "this document"}.
 Format each as:
 **Q:** [Question]
 **A:** [Concise answer]
 
 Focus on: definitions, key facts, cause-effect relationships, and important dates/names.
+{"Also include 2-3 cards that ask about differences or connections between the documents." if multi else ""}
 
 Document:
-{doc}"""
+{doc_block}"""
 
     elif mode == "Chat":
         if user_input:
-            return f"""You are a helpful academic assistant. Answer the student's question using ONLY the information in the document below.
+            # ← CHANGED: source_note adapts to single vs multi
+            source_note = "the documents below" if multi else "the document below"
+            name_note = " When referencing specific information, name the document it came from." if multi else ""
+            return f"""You are a helpful academic assistant. Answer the student's question using ONLY the information in {source_note}.
 
-If the answer isn't in the document, say so clearly. Be concise but thorough.
+If the answer isn't in the document(s), say so clearly.{name_note} Be concise but thorough.
 
 Document:
-{doc}
+{doc_block}
 
 Student's Question:
 {user_input}"""
         else:
-            return f"Here is the document to reference:\n\n{doc}"
+            # ← CHANGED: plural "documents" in multi mode
+            return f"Here {'are the documents' if multi else 'is the document'} to reference:\n\n{doc_block}"
 
     elif mode == "Connections":
         return user_input or ""
 
     else:
-        if doc and user_input:
-            return f"Document:\n{doc}\n\nQuestion: {user_input}"
-        return user_input or doc
+        if doc_block and user_input:
+            return f"Document:\n{doc_block}\n\nQuestion: {user_input}"
+        return user_input or doc_block
 
 
 # ── Smart post-response suggestions ──────────────────────────────────────────
