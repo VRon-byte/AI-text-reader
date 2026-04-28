@@ -6,18 +6,18 @@ from prompts import build_prompt, get_smart_suggestions
 from ui_components import apply_custom_styles, render_upload_intent_modal, render_doc_viewer
 
 # ── Page config ────────────────────────────────────────────────────────────────
-st.set_page_config(
+st.set_page_config( #page title, icon, & layout
     page_title="Scholar — AI Study Assistant",
     page_icon="📖",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-text_reader = TextReader()
+text_reader = TextReader()#text reader for applying
 apply_custom_styles()
 
 # ── Session state ──────────────────────────────────────────────────────────────
-def init_state():
+def init_state():#App memory for every script rerun from user interaction
     defaults = {
         "chats": {"Session 1": {"messages": [], "tags": [], "created": datetime.now().strftime("%b %d")}},
         "active_chat": "Session 1",
@@ -40,7 +40,9 @@ def init_state():
 init_state()
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-def active_messages():
+def active_messages():#utility functions for fetching message list
+    #adding new messages to the list (user and assisstant) with timestamp,
+    #and the fetching text content from a chosen doc
     return st.session_state.chats[st.session_state.active_chat]["messages"]
 
 def push_message(role, content):
@@ -58,7 +60,7 @@ def current_document():
 
 # ── Intent modal (full-page takeover) ─────────────────────────────────────────
 if st.session_state.show_intent_modal and st.session_state.pending_upload is not None:
-    render_upload_intent_modal(text_reader)
+    render_upload_intent_modal(text_reader)#user option popup before re-rendering app for a upload + text extraction
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -71,6 +73,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     # ── Navigate ───────────────────────────────────────────────────────────
+    #Navigating sidebar menu, changing active tab for "chat" and "library"
     st.markdown('<div class="nav-section-label">Navigate</div>', unsafe_allow_html=True)
     if st.button("💬  Chat", key="nav_chat", use_container_width=True,
                  type="primary" if st.session_state.active_tab == "chat" else "secondary"):
@@ -82,6 +85,7 @@ with st.sidebar:
         st.rerun()
 
     # ── Upload ─────────────────────────────────────────────────────────────
+    #Drag-&-drop file types + url paste boxes, changes app state if new content is uploaded
     st.markdown('<div class="nav-section-label">Upload</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
         "Drop a file",
@@ -94,13 +98,14 @@ with st.sidebar:
         label_visibility="collapsed",
         key="url_nav"
     )
+#restrictions on uploading same doc
 
     if uploaded_file and not any(d["name"] == uploaded_file.name for d in st.session_state.documents):
         st.session_state.pending_upload = ("file", uploaded_file)
         st.session_state.pending_upload_name = uploaded_file.name
         st.session_state.show_intent_modal = True
         st.rerun()
-
+#restrictions on pasting non-valid url
     if (url_input and url_input.startswith("http")
             and not any(d["name"] == url_input for d in st.session_state.documents)):
         st.session_state.pending_upload = ("url", url_input)
@@ -110,6 +115,7 @@ with st.sidebar:
 
     # ── Sessions ───────────────────────────────────────────────────────────
     st.markdown('<div class="nav-section-label">Sessions</div>', unsafe_allow_html=True)
+    #default active_chat inside 1st session
     if st.button("＋  New session", use_container_width=True):
         name = f"Session {len(st.session_state.chats) + 1}"
         st.session_state.chats[name] = {
@@ -118,7 +124,7 @@ with st.sidebar:
         st.session_state.active_chat = name
         st.session_state.active_tab = "chat"
         st.rerun()
-
+    #app state changes- active chat- when user interacts with session buttons
     for chat_name in list(st.session_state.chats.keys()):
         is_active = chat_name == st.session_state.active_chat
         n_msgs = len(st.session_state.chats[chat_name]["messages"])
@@ -129,6 +135,7 @@ with st.sidebar:
             st.session_state.active_tab = "chat"
             st.rerun()
 
+    #app state changes- deleting sessions except 1st
     if len(st.session_state.chats) > 1:
         if st.button("🗑  Delete session", use_container_width=True):
             del st.session_state.chats[st.session_state.active_chat]
@@ -138,6 +145,7 @@ with st.sidebar:
     # ── Documents quick-list ────────────────────────────────────────────────
     if st.session_state.documents:
         st.markdown('<div class="nav-section-label">Documents</div>', unsafe_allow_html=True)
+        #Documents uploaded list with a mark to signify activation for chat
         for i, doc in enumerate(st.session_state.documents):
             is_active = st.session_state.current_doc_index == i
             icon = "✓ " if is_active else "· "
@@ -155,10 +163,12 @@ with st.sidebar:
 if st.session_state.active_tab == "library":
     st.markdown('<h1 class="page-title">Document Library</h1>', unsafe_allow_html=True)
 
+
     search = st.text_input(
         "search", placeholder="Search by title, content, or tag…",
         label_visibility="collapsed", value=st.session_state.search_query
     )
+    #Searching docs with either doc name, first 500 chars, or tags----
     st.session_state.search_query = search
 
     docs = st.session_state.documents
@@ -191,7 +201,8 @@ if st.session_state.active_tab == "library":
 
         if st.session_state.doc_filter_tag:
             docs = [d for d in docs if st.session_state.doc_filter_tag in d.get("tags", [])]
-
+#-----
+#filtered docs organized into 3 columns with doc name, upload date, content preview, & tags ---
         grid = st.columns(3)
         for i, doc in enumerate(docs):
             real_idx = st.session_state.documents.index(doc)
@@ -223,7 +234,7 @@ if st.session_state.active_tab == "library":
                         if st.session_state.current_doc_index == real_idx:
                             st.session_state.current_doc_index = None
                         st.rerun()
-
+#----
                 # ── Instant tag via on_change ──────────────────────────────
                 def _add_tag(idx=real_idx):
                     val = st.session_state.get(f"tag_input_{idx}", "").strip()
@@ -235,16 +246,17 @@ if st.session_state.active_tab == "library":
                     key=f"tag_input_{real_idx}",
                     placeholder="Add tag & press Enter…",
                     label_visibility="collapsed",
-                    on_change=_add_tag,
+                    on_change=_add_tag, #Executes on enter via reading input value from session state key
                 )
-
+#----
+                
                 # Show live pills immediately — reflects state without extra interaction
                 live_tags = st.session_state.documents[real_idx].get("tags", [])
                 if live_tags:
                     pills = " ".join(f'<span class="doc-tag">#{t}</span>' for t in live_tags)
                     st.markdown(f'<div class="doc-tags" style="margin-top:0.3rem">{pills}</div>',
                                 unsafe_allow_html=True)
-
+#Find connections for min 2 selected docs and sends content to AI based on selected button prompts, pushed to active chat
     if len(st.session_state.documents) >= 2:
         st.markdown("---")
         st.markdown('<h2 class="section-title">🔗 Find Connections</h2>', unsafe_allow_html=True)
@@ -281,6 +293,7 @@ else:
             active_doc = st.session_state.documents[idx]
 
     # ── Session tabs — single row of clickable buttons only ────────────────
+    #session tabs on top and side for switching
     chat_names = list(st.session_state.chats.keys())
     if chat_names:
         tab_cols = st.columns(min(len(chat_names), 8))
@@ -298,6 +311,7 @@ else:
                     st.rerun()
 
     # ── Header row ──────────────────────────────────────────────────────────
+    #Chat session and mode in heading and active doc marking
     hdr, mode_sel = st.columns([3, 1])
     with hdr:
         st.markdown(

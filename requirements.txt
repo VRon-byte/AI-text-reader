@@ -1,19 +1,8 @@
-"""requirements download:
-streamlit
-google-genai
-python-dotenv
-requests
-pdfplumber
-python-docx
-pandas
-numpy
-tqdm
-
-"""
 altair==6.0.0
 annotated-types==0.7.0
 anyio==4.12.1
 attrs==25.4.0
+beautifulsoup4==4.14.3
 blinker==1.9.0
 cachetools==6.2.6
 certifi==2026.1.4
@@ -60,6 +49,7 @@ pydantic==2.12.5
 pydantic_core==2.41.5
 pydeck==0.9.1
 pyparsing==3.3.2
+PyPDF2==3.0.1
 pypdfium2==5.5.0
 python-dateutil==2.9.0.post0
 python-docx==1.2.0
@@ -72,6 +62,7 @@ rsa==4.9.1
 six==1.17.0
 smmap==5.0.2
 sniffio==1.3.1
+soupsieve==2.8.3
 streamlit==1.54.0
 tenacity==9.1.4
 toml==0.10.2
@@ -82,4 +73,5 @@ typing_extensions==4.15.0
 tzdata==2025.3
 uritemplate==4.2.0
 urllib3==2.6.3
+validators==0.35.0
 websockets==16.0
